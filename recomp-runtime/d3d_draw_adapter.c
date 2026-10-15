@@ -4,6 +4,7 @@
 #include "d3d_frame_adapter.h"
 #include "d3d_texture_adapter.h"
 #include "d3d_vertex_shader_model.h"
+#include "mesh_dump.h"
 
 #include <inttypes.h>
 #include <errno.h>
@@ -1976,6 +1977,20 @@ static void recomp_d3d_draw_indexed_vertices_adapter(void)
         goto finished;
     }
     capture_command = &command.data.draw;
+    {
+        const uint32_t present = recomp_d3d_frame_adapter_swap_counter() + 1u;
+        if (recomp_mesh_dump_active(present)) {
+            float worlds[4][16], view[16], projection[16];
+            uint32_t count = 0u;
+            while (count <= command.data.draw.blend_weight_count && count < 4u &&
+                read_transform(device, D3D_TRANSFORM_WORLD + count, worlds[count])) ++count;
+            bool cameras = read_transform(device, D3D_TRANSFORM_VIEW, view) &&
+                read_transform(device, D3D_TRANSFORM_PROJECTION, projection);
+            recomp_mesh_dump_draw(present, &command.data.draw, result.plan.vertex_data,
+                result.plan.index_data, worlds, count,
+                cameras ? view : NULL, cameras ? projection : NULL);
+        }
+    }
 
     RecompD3dPresenterError presenter_error = recomp_d3d_presenter_submit(
         recomp_d3d_frame_adapter_presenter(), &command);
@@ -2426,6 +2441,20 @@ static void submit_doa3_draw(uint32_t primitive, uint32_t count,
             RECOMP_D3D_MATERIAL_ALPHA_SELECT_DIFFUSE) {
         draw->material_alpha_mode = RECOMP_D3D_MATERIAL_ALPHA_SELECT_DIFFUSE;
         draw->material_alpha = 1.0f;
+    }
+    {
+        const uint32_t present = recomp_d3d_frame_adapter_swap_counter() + 1u;
+        if (recomp_mesh_dump_active(present)) {
+            float worlds[4][16], view[16], projection[16];
+            uint32_t worlds_read = 0u;
+            while (worlds_read <= draw->blend_weight_count && worlds_read < 4u &&
+                read_transform(device, D3D_TRANSFORM_WORLD + worlds_read, worlds[worlds_read]))
+                ++worlds_read;
+            bool cameras = read_transform(device, D3D_TRANSFORM_VIEW, view) &&
+                read_transform(device, D3D_TRANSFORM_PROJECTION, projection);
+            recomp_mesh_dump_draw(present, draw, vertices, 0u, worlds, worlds_read,
+                cameras ? view : NULL, cameras ? projection : NULL);
+        }
     }
     if (recomp_d3d_presenter_submit(recomp_d3d_frame_adapter_presenter(), &command) !=
         RECOMP_D3D_PRESENTER_OK) { decline = "doa3-presenter"; goto finished; }
