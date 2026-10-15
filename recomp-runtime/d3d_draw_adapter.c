@@ -1989,7 +1989,8 @@ static void recomp_d3d_draw_indexed_vertices_adapter(void)
                 read_transform(device, D3D_TRANSFORM_PROJECTION, projection);
             recomp_mesh_dump_draw(present, &command.data.draw, result.plan.vertex_data,
                 result.plan.index_data, worlds, count,
-                cameras ? view : NULL, cameras ? projection : NULL);
+                cameras ? view : NULL, cameras ? projection : NULL,
+                (const float *)(const void *)guest_span(device + 0xb18u, 68u));
         }
     }
 
@@ -2449,7 +2450,8 @@ static void submit_doa3_draw(uint32_t primitive, uint32_t count,
             read_transform(device, D3D_TRANSFORM_VIEW, view) &&
             read_transform(device, D3D_TRANSFORM_PROJECTION, projection) &&
             recomp_costume_inject_draw(recomp_d3d_frame_adapter_swap_counter() + 1u,
-                vertices, world, view, projection, draw))
+                vertices, world, view, projection, draw,
+                (const float *)(const void *)guest_span(device + 0xb18u, 68u)))
             goto finished;
     }
     {
@@ -2463,7 +2465,8 @@ static void submit_doa3_draw(uint32_t primitive, uint32_t count,
             bool cameras = read_transform(device, D3D_TRANSFORM_VIEW, view) &&
                 read_transform(device, D3D_TRANSFORM_PROJECTION, projection);
             recomp_mesh_dump_draw(present, draw, vertices, 0u, worlds, worlds_read,
-                cameras ? view : NULL, cameras ? projection : NULL);
+                cameras ? view : NULL, cameras ? projection : NULL,
+                (const float *)(const void *)guest_span(device + 0xb18u, 68u));
         }
     }
     if (recomp_d3d_presenter_submit(recomp_d3d_frame_adapter_presenter(), &command) !=

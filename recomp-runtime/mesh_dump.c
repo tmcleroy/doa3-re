@@ -1,6 +1,7 @@
 #include "mesh_dump.h"
 #include "runtime.h"
 
+#include <SDL3/SDL.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +26,19 @@ static struct {
     char folder[1024];
     uint32_t ordinal;
     uint32_t textures[MESH_DUMP_TEXTURES], texture_count;
+    /* F9 captures a burst of presents (with RAM) into capture-NN/. */
+    uint32_t hotkey_present, burst[MESH_DUMP_PRESENTS], burst_count, capture;
+    bool hotkey_down;
 } dump;
+
+enum { MESH_DUMP_BURST = 6, MESH_DUMP_BURST_SPACING = 30 };
+
+static bool in_burst(uint32_t present)
+{
+    for (uint32_t i = 0u; i < dump.burst_count; ++i)
+        if (dump.burst[i] == present) return true;
+    return false;
+}
 
 static void configure(void)
 {
@@ -42,8 +55,11 @@ static void configure(void)
         dump.at[dump.at_count++] = (uint32_t)value;
         at = *end == ',' ? end + 1 : end;
     }
-    dump.enabled = dump.at_count != 0u || dump.trigger != NULL;
+    dump.enabled = true;
     dump.checked_present = dump.triggered_present = dump.open_present = UINT32_MAX;
+    dump.hotkey_present = UINT32_MAX;
+    fprintf(stderr, "recomp mesh dump: press F9 to capture %u frames into %s/capture-NN\n",
+        (unsigned)MESH_DUMP_BURST, dump.root);
     if (dump.enabled) mesh_dump_mkdir(dump.root);
 }
 
@@ -51,6 +67,20 @@ bool recomp_mesh_dump_active(uint32_t present)
 {
     if (!dump.configured) configure();
     if (!dump.enabled) return false;
+    if (dump.hotkey_present != present) {
+        dump.hotkey_present = present;
+        const bool *keys = SDL_GetKeyboardState(NULL);
+        bool down = keys != NULL && keys[SDL_SCANCODE_F9];
+        if (down && !dump.hotkey_down) {
+            ++dump.capture;
+            dump.burst_count = MESH_DUMP_BURST;
+            for (uint32_t i = 0u; i < MESH_DUMP_BURST; ++i)
+                dump.burst[i] = present + 1u + i * MESH_DUMP_BURST_SPACING;
+            fprintf(stderr, "recomp mesh dump: capture %u started\n", dump.capture);
+        }
+        dump.hotkey_down = down;
+    }
+    if (in_burst(present)) return true;
     for (uint32_t i = 0u; i < dump.at_count; ++i)
         if (dump.at[i] == present) return true;
     if (dump.trigger != NULL && dump.checked_present != present) {
@@ -72,7 +102,14 @@ static bool open_present(uint32_t present)
     dump.open_present = present;
     dump.ordinal = 0u;
     dump.texture_count = 0u;
-    snprintf(dump.folder, sizeof dump.folder, "%s/present-%u", dump.root, present);
+    if (in_burst(present)) {
+        char capture[900];
+        snprintf(capture, sizeof capture, "%s/capture-%02u", dump.root, dump.capture);
+        mesh_dump_mkdir(capture);
+        snprintf(dump.folder, sizeof dump.folder, "%s/present-%u", capture, present);
+    } else {
+        snprintf(dump.folder, sizeof dump.folder, "%s/present-%u", dump.root, present);
+    }
     mesh_dump_mkdir(dump.folder);
     char path[1100];
     snprintf(path, sizeof path, "%s/draws.jsonl", dump.folder);
@@ -82,7 +119,7 @@ static bool open_present(uint32_t present)
     /* Optional guest RAM snapshot, taken before this present's first draw, so
        bone matrices can be located by value offline. Private data. */
     const char *ram = getenv("RECOMP_MESH_DUMP_RAM");
-    if (ram != NULL && *ram != '\0' && *ram != '0') {
+    if (in_burst(present) || (ram != NULL && *ram != '\0' && *ram != '0')) {
         const uint8_t *bytes = recomp_memory(0u, RECOMP_XBOX_RAM_SIZE);
         if (bytes != NULL) write_file("ram.bin", bytes, RECOMP_XBOX_RAM_SIZE);
     }
@@ -137,7 +174,8 @@ void recomp_mesh_dump_draw(uint32_t present,
     const RecompD3dPresenterDrawCommand *draw,
     uint32_t vertex_data, uint32_t index_data,
     const float worlds[4][16], uint32_t world_count,
-    const float view[16], const float projection[16])
+    const float view[16], const float projection[16],
+    const float *material)
 {
     if (draw == NULL || !recomp_mesh_dump_active(present) || !open_present(present)) return;
     const uint32_t ordinal = dump.ordinal++;
@@ -179,6 +217,11 @@ void recomp_mesh_dump_draw(uint32_t present,
     if (projection != NULL) write_matrix("projection", projection);
     write_matrix("transform", draw->transform);
     if (draw->has_texture) write_texture(draw);
+    if (material != NULL) {
+        fputs(",\"raw_material\":[", dump.index);
+        for (unsigned i = 0u; i < 17u; ++i) fprintf(dump.index, "%s%.9g", i ? "," : "", material[i]);
+        fputc(']', dump.index);
+    }
     fputs("}\n", dump.index);
     fflush(dump.index);
 }

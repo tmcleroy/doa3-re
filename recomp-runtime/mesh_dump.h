@@ -28,7 +28,8 @@ void recomp_mesh_dump_draw(uint32_t present,
     const RecompD3dPresenterDrawCommand *draw,
     uint32_t vertex_data, uint32_t index_data,
     const float worlds[4][16], uint32_t world_count,
-    const float view[16], const float projection[16]);
+    const float view[16], const float projection[16],
+    const float *material /* D3DMATERIAL8 (17 floats) or NULL */);
 
 #ifdef __cplusplus
 }

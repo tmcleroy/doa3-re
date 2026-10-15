@@ -23,7 +23,8 @@ bool recomp_costume_inject_enabled(void);
    first draw of the present, using the draw as the render-state template. */
 bool recomp_costume_inject_draw(uint32_t present, uint32_t vertex_data, const float world[16],
     const float view[16], const float projection[16],
-    const RecompD3dPresenterDrawCommand *template_draw);
+    const RecompD3dPresenterDrawCommand *template_draw,
+    const float *template_material /* D3DMATERIAL8, 17 floats, or NULL */);
 
 #ifdef __cplusplus
 }
