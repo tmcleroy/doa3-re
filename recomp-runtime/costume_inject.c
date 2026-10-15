@@ -41,6 +41,9 @@ typedef struct Part {
     uint32_t alpha_func, alpha_ref;
     bool soft;
     float soft_params[4];
+    float source_rotation[9]; /* bone rotation (rows) when the rest shape was captured */
+    float anchor[3];          /* bone-local hair root */
+    bool hang;
     float *mask;
 } Part;
 
@@ -236,7 +239,7 @@ static bool load(Asset *a, unsigned slot, const char *path)
     char magic[4];
     uint32_t head[4];
     bool ok = read_all(f, magic, 4) && memcmp(magic, "DXC1", 4) == 0 &&
-        read_all(f, head, sizeof head) && head[0] >= 2u && head[0] <= 5u && head[1] <= 16u;
+        read_all(f, head, sizeof head) && head[0] >= 2u && head[0] <= 6u && head[1] <= 16u;
     if (ok) {
         a->relative_count = head[1];
         for (uint32_t i = 0; ok && i < head[1]; ++i)
@@ -288,8 +291,13 @@ static bool load(Asset *a, unsigned slot, const char *path)
             if (ok && head[0] >= 4u && (p->flags & 4u)) {
                 p->soft = true;
                 p->mask = malloc((size_t)p->vertex_count * sizeof(float) + 4);
-                ok = read_all(f, p->soft_params, sizeof p->soft_params) &&
-                    read_all(f, p->mask, (size_t)p->vertex_count * sizeof(float));
+                ok = read_all(f, p->soft_params, sizeof p->soft_params);
+                if (ok && head[0] >= 6u) {
+                    ok = read_all(f, p->source_rotation, sizeof p->source_rotation) &&
+                        read_all(f, p->anchor, sizeof p->anchor);
+                    p->hang = ok;
+                }
+                ok = ok && read_all(f, p->mask, (size_t)p->vertex_count * sizeof(float));
             }
             p->vertices = malloc((size_t)p->vertex_count * p->stride + 1);
             p->indices = malloc((size_t)p->index_count * 2 + 2);
@@ -446,6 +454,15 @@ static void poll_keys(uint32_t present)
     }
 }
 
+/* Rodrigues rotation of v about unit axis k (row-vector frame) by angle. */
+static void rotate_axis(float v[3], const float k[3], float angle)
+{
+    float c = cosf(angle), s = sinf(angle);
+    float kv = k[0]*v[0] + k[1]*v[1] + k[2]*v[2];
+    float x[3] = {k[1]*v[2] - k[2]*v[1], k[2]*v[0] - k[0]*v[2], k[0]*v[1] - k[1]*v[0]};
+    for (unsigned i = 0; i < 3; ++i) v[i] = v[i]*c + x[i]*s + k[i]*kv*(1.0f - c);
+}
+
 static void skin(Part *p, float bank[DOAX_BONES][16], const float *soft_offset)
 {
     RecompD3dVertexLayout layout;
@@ -453,6 +470,24 @@ static void skin(Part *p, float bank[DOAX_BONES][16], const float *soft_offset)
     float m[MAX_WORLDS][16];
     for (uint32_t w = 0; w < p->world_count; ++w) multiply(p->offsets[w], bank[p->bones[w]], m[w]);
     const uint32_t weights = layout.blend_weight_count < p->world_count ? layout.blend_weight_count : p->world_count - 1;
+    /* Gravity in the bone's frame now and when the rest shape was captured
+       (world +Y is up in both games); the swing between them is how far the
+       hair must turn about its root to keep hanging. */
+    float hang_axis[3] = {0, 0, 0}, hang_angle = 0.0f;
+    if (p->soft && p->hang) {
+        const float *r = bank[p->bones[0]], *q = p->source_rotation;
+        float now[3] = {r[1], r[5], r[9]}, then[3] = {q[1], q[4], q[7]};
+        float ln = sqrtf(now[0]*now[0]+now[1]*now[1]+now[2]*now[2]);
+        if (ln > 0) for (unsigned c = 0; c < 3; ++c) now[c] /= ln;
+        hang_axis[0] = then[1]*now[2] - then[2]*now[1];
+        hang_axis[1] = then[2]*now[0] - then[0]*now[2];
+        hang_axis[2] = then[0]*now[1] - then[1]*now[0];
+        float sine = sqrtf(hang_axis[0]*hang_axis[0]+hang_axis[1]*hang_axis[1]+hang_axis[2]*hang_axis[2]);
+        float cosine = then[0]*now[0] + then[1]*now[1] + then[2]*now[2];
+        hang_angle = atan2f(sine, cosine);
+        if (sine > 1e-6f) for (unsigned c = 0; c < 3; ++c) hang_axis[c] /= sine;
+        else hang_angle = 0.0f;
+    }
     for (uint32_t v = 0; v < p->vertex_count; ++v) {
         const uint8_t *src = p->vertices + (size_t)v * p->stride;
         float pos[3], nrm[3] = {0, 0, 0}, uv[2] = {0, 0}, wt[MAX_WORLDS] = {1, 0, 0, 0};
@@ -474,10 +509,27 @@ static void skin(Part *p, float bank[DOAX_BONES][16], const float *soft_offset)
                 out[3+c] += wt[k] * (nrm[0]*a[c] + nrm[1]*a[4+c] + nrm[2]*a[8+c]);
             }
         }
-        if (soft_offset && p->mask[v] > 0.0f) {
-            const float *r = bank[p->bones[0]];
-            for (unsigned c = 0; c < 3; ++c)
-                out[c] += p->mask[v] * (soft_offset[0]*r[c] + soft_offset[1]*r[4+c] + soft_offset[2]*r[8+c]);
+        if (p->soft && p->mask[v] > 0.0f) {
+            /* Redo this vertex in bone-local space: hang toward gravity, then jiggle. */
+            const float w = p->mask[v];
+            const float *o = p->offsets[0], *r = bank[p->bones[0]];
+            float local[3], ln[3];
+            for (unsigned c = 0; c < 3; ++c) {
+                local[c] = pos[0]*o[c] + pos[1]*o[4+c] + pos[2]*o[8+c] + o[12+c];
+                ln[c] = nrm[0]*o[c] + nrm[1]*o[4+c] + nrm[2]*o[8+c];
+            }
+            if (p->hang && hang_angle > 1e-3f) {
+                float d[3] = {local[0]-p->anchor[0], local[1]-p->anchor[1], local[2]-p->anchor[2]};
+                rotate_axis(d, hang_axis, hang_angle * w);
+                rotate_axis(ln, hang_axis, hang_angle * w);
+                for (unsigned c = 0; c < 3; ++c) local[c] = p->anchor[c] + d[c];
+            }
+            if (soft_offset)
+                for (unsigned c = 0; c < 3; ++c) local[c] += w * soft_offset[c];
+            for (unsigned c = 0; c < 3; ++c) {
+                out[c] = local[0]*r[c] + local[1]*r[4+c] + local[2]*r[8+c] + r[12+c];
+                out[3+c] = ln[0]*r[c] + ln[1]*r[4+c] + ln[2]*r[8+c];
+            }
         }
         float l = sqrtf(out[3]*out[3] + out[4]*out[4] + out[5]*out[5]);
         if (l > 0) for (unsigned c = 3; c < 6; ++c) out[c] /= l;
