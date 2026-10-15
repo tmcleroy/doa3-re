@@ -16,8 +16,10 @@
 /* DOA3 keeps each fighter's 23 bone matrices (row-vector, 64 bytes each) in
    consecutive banks; a fighter part's WORLD0 is a verbatim copy of one.
    Measured in the attract demo: 0x004785D0 and 0x00478B90. */
-enum { FIGHTERS = 2, DOA3_BONES = 23, DOAX_BONES = 32, MAX_WORLDS = 4 };
-static const uint32_t bank_base[FIGHTERS] = {0x004785d0u, 0x00478b90u};
+/* Slots 2 and 3 are tag partners (third bank referenced by game code); they
+   wear their team's (slot & 1) costume. Banks that never match cost nothing. */
+enum { FIGHTERS = 4, TEAMS = 2, DOA3_BONES = 23, DOAX_BONES = 32, MAX_WORLDS = 4 };
+static const uint32_t bank_base[FIGHTERS] = {0x004785d0u, 0x00478b90u, 0x00479150u, 0x00479710u};
 
 typedef struct Texture {
     RecompD3dTextureDesc desc;
@@ -327,8 +329,8 @@ static struct {
     Asset *asset[POOL];
     bool failed[POOL];
     uint32_t count;
-    int choice[FIGHTERS];
-    bool key_down[FIGHTERS];
+    int choice[TEAMS];
+    bool key_down[TEAMS];
     uint32_t key_present;
 } pool;
 
@@ -363,10 +365,12 @@ static const char *base_name(const char *path)
 static void choose(unsigned f, int index)
 {
     pool.choice[f] = index;
-    inject.fighter_asset[f] = pool_get(index);
-    free(inject.soft_state[f]);
-    inject.soft_state[f] = NULL;
-    inject.history_count[f] = 0;
+    for (unsigned slot = f; slot < FIGHTERS; slot += TEAMS) {
+        inject.fighter_asset[slot] = pool_get(index);
+        free(inject.soft_state[slot]);
+        inject.soft_state[slot] = NULL;
+        inject.history_count[slot] = 0;
+    }
     fprintf(stderr, "recomp costume inject: P%u -> %s\n", f + 1,
         inject.fighter_asset[f] ? base_name(pool.path[index]) : "stock");
 }
@@ -407,8 +411,9 @@ bool recomp_costume_inject_enabled(void)
 #ifndef _WIN32
         if (dir && *dir) scan_directory(dir);
 #endif
-        const char *names[FIGHTERS] = {"RECOMP_COSTUME_INJECT_P1", "RECOMP_COSTUME_INJECT_P2"};
-        for (unsigned f = 0; f < FIGHTERS; ++f) {
+        const char *names[TEAMS] = {"RECOMP_COSTUME_INJECT_P1", "RECOMP_COSTUME_INJECT_P2"};
+        for (unsigned f = 0; f < FIGHTERS; ++f) inject.injected_present[f] = UINT32_MAX;
+        for (unsigned f = 0; f < TEAMS; ++f) {
             inject.injected_present[f] = UINT32_MAX;
             pool.choice[f] = -1;
             const char *path = getenv(names[f]);
@@ -416,7 +421,7 @@ bool recomp_costume_inject_enabled(void)
             if (!path || !*path || !(inject.fighter_mask & (1u << f))) continue;
             int index = pool_add(path);
             pool.choice[f] = index;
-            inject.fighter_asset[f] = pool_get(index);
+            inject.fighter_asset[f] = inject.fighter_asset[f + TEAMS] = pool_get(index);
         }
         inject.enabled = pool.count > 0;
         if (inject.enabled)
@@ -431,7 +436,7 @@ static void poll_keys(uint32_t present)
     pool.key_present = present;
     const bool *keys = SDL_GetKeyboardState(NULL);
     if (!keys) return;
-    const SDL_Scancode codes[FIGHTERS] = {SDL_SCANCODE_F5, SDL_SCANCODE_F6};
+    const SDL_Scancode codes[TEAMS] = {SDL_SCANCODE_F5, SDL_SCANCODE_F6};
     /* Test hook: RECOMP_COSTUME_CYCLE_AT=<present>[,...] presses F5 at those presents. */
     static const char *cycle_at;
     static bool cycle_read;
@@ -443,7 +448,7 @@ static void poll_keys(uint32_t present)
         if (at == present) choose(0, pool.choice[0] + 1 >= (int)pool.count ? -1 : pool.choice[0] + 1);
         c = *end == ',' ? end + 1 : end;
     }
-    for (unsigned f = 0; f < FIGHTERS; ++f) {
+    for (unsigned f = 0; f < TEAMS; ++f) {
         bool down = keys[codes[f]];
         if (down && !pool.key_down[f]) {
             int next = pool.choice[f] + 1;
