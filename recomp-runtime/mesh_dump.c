@@ -31,7 +31,7 @@ static struct {
     bool hotkey_down;
 } dump;
 
-enum { MESH_DUMP_BURST = 6, MESH_DUMP_BURST_SPACING = 30 };
+enum { MESH_DUMP_BURST = 8, MESH_DUMP_BURST_SPACING = 20 };
 
 static bool in_burst(uint32_t present)
 {
@@ -222,6 +222,24 @@ void recomp_mesh_dump_draw(uint32_t present,
         for (unsigned i = 0u; i < 17u; ++i) fprintf(dump.index, "%s%.9g", i ? "," : "", material[i]);
         fputc(']', dump.index);
     }
+    fprintf(dump.index,
+        ",\"material\":{\"lit\":%s,\"diffuse\":[%.6g,%.6g,%.6g,%.6g],"
+        "\"ambient_emissive\":[%.6g,%.6g,%.6g,%.6g],\"texture_factor\":%u,"
+        "\"use_texture_factor\":%s,\"modulate_texture_factor\":%s,"
+        "\"material_alpha_mode\":%u,\"material_alpha\":%.6g,"
+        "\"blend_src\":%u,\"blend_dst\":%u,\"blend_op\":%u,\"alpha_test\":%s,"
+        "\"alpha_func\":%u,\"alpha_ref\":%u,\"z_func\":%u}",
+        draw->directional.enabled ? "true" : "false",
+        draw->directional.material_diffuse[0], draw->directional.material_diffuse[1],
+        draw->directional.material_diffuse[2], draw->directional.material_diffuse[3],
+        draw->directional.ambient_emissive[0], draw->directional.ambient_emissive[1],
+        draw->directional.ambient_emissive[2], draw->directional.ambient_emissive[3],
+        draw->texture_factor, draw->use_texture_factor ? "true" : "false",
+        draw->modulate_texture_factor ? "true" : "false",
+        (unsigned)draw->material_alpha_mode, draw->material_alpha,
+        (unsigned)draw->blend.src_factor, (unsigned)draw->blend.dst_factor,
+        (unsigned)draw->blend.op, draw->depth.alpha_test_enable ? "true" : "false",
+        (unsigned)draw->depth.alpha_func, draw->depth.alpha_ref, (unsigned)draw->depth.depth_func);
     fputs("}\n", dump.index);
     fflush(dump.index);
 }
