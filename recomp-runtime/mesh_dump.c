@@ -1,4 +1,5 @@
 #include "mesh_dump.h"
+#include "runtime.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -61,6 +62,8 @@ bool recomp_mesh_dump_active(uint32_t present)
     return dump.triggered_present == present;
 }
 
+static void write_file(const char *name, const void *bytes, size_t size);
+
 static bool open_present(uint32_t present)
 {
     if (dump.open_present == present) return dump.index != NULL;
@@ -76,6 +79,13 @@ static bool open_present(uint32_t present)
     dump.index = fopen(path, "wb");
     if (dump.index != NULL)
         fprintf(stderr, "recomp mesh dump: writing %s\n", dump.folder);
+    /* Optional guest RAM snapshot, taken before this present's first draw, so
+       bone matrices can be located by value offline. Private data. */
+    const char *ram = getenv("RECOMP_MESH_DUMP_RAM");
+    if (ram != NULL && *ram != '\0' && *ram != '0') {
+        const uint8_t *bytes = recomp_memory(0u, RECOMP_XBOX_RAM_SIZE);
+        if (bytes != NULL) write_file("ram.bin", bytes, RECOMP_XBOX_RAM_SIZE);
+    }
     return dump.index != NULL;
 }
 

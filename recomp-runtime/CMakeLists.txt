@@ -562,6 +562,7 @@ if(RECOMP_PROGRAM_DIR)
         d3d_draw_model.c
         d3d_draw_adapter.c
         mesh_dump.c
+        costume_inject.c
         d3d_frame_model.c
         d3d_frame_adapter.c
         d3d_miniport_adapter.c

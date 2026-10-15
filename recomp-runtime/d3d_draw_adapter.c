@@ -5,6 +5,7 @@
 #include "d3d_texture_adapter.h"
 #include "d3d_vertex_shader_model.h"
 #include "mesh_dump.h"
+#include "costume_inject.h"
 
 #include <inttypes.h>
 #include <errno.h>
@@ -2441,6 +2442,15 @@ static void submit_doa3_draw(uint32_t primitive, uint32_t count,
             RECOMP_D3D_MATERIAL_ALPHA_SELECT_DIFFUSE) {
         draw->material_alpha_mode = RECOMP_D3D_MATERIAL_ALPHA_SELECT_DIFFUSE;
         draw->material_alpha = 1.0f;
+    }
+    if (draw->has_transform && recomp_costume_inject_enabled()) {
+        float world[16], view[16], projection[16];
+        if (read_transform(device, D3D_TRANSFORM_WORLD, world) &&
+            read_transform(device, D3D_TRANSFORM_VIEW, view) &&
+            read_transform(device, D3D_TRANSFORM_PROJECTION, projection) &&
+            recomp_costume_inject_draw(recomp_d3d_frame_adapter_swap_counter() + 1u,
+                world, view, projection, draw))
+            goto finished;
     }
     {
         const uint32_t present = recomp_d3d_frame_adapter_swap_counter() + 1u;
