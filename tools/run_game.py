@@ -45,10 +45,19 @@ def launcher_settings():
     """The choices launcher.sh saved, as the variables Launcher.cmd sets."""
     try:
         settings = json.loads((ROOT / "private" / "launcher.json").read_text(encoding="utf-8"))
-        return {"RECOMP_D3D_SCALE": f"{int(settings.get('height', 480)) / 480:.4f}",
-                "RECOMP_D3D_MSAA": str(int(settings.get("msaa", 1))),
-                "RECOMP_D3D_WIDESCREEN": "1" if settings.get("widescreen") else "0",
-                "RECOMP_AUDIO_GAIN": f"{int(settings.get('volume', 100)) / 100:.4f}"}
+        env = {"RECOMP_D3D_SCALE": f"{int(settings.get('height', 480)) / 480:.4f}",
+               "RECOMP_D3D_MSAA": str(int(settings.get("msaa", 1))),
+               "RECOMP_D3D_WIDESCREEN": "1" if settings.get("widescreen") else "0",
+               "RECOMP_AUDIO_GAIN": f"{int(settings.get('volume', 100)) / 100:.4f}"}
+        # Experimental costume injection: private/doax-<name>.dxc per player.
+        private = ROOT / "private"
+        if any(private.glob("doax-*.dxc")):
+            env["RECOMP_COSTUME_DIR"] = str(private)
+            for key, var in (("costume_p1", "RECOMP_COSTUME_INJECT_P1"), ("costume_p2", "RECOMP_COSTUME_INJECT_P2")):
+                name = settings.get(key) or ""
+                if name and (private / f"doax-{name}.dxc").is_file():
+                    env[var] = str(private / f"doax-{name}.dxc")
+        return env
     except (OSError, ValueError, TypeError, AttributeError, OverflowError):
         return {}
 

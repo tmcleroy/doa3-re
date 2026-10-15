@@ -12,6 +12,14 @@ let settingsURL = root.appendingPathComponent("private/launcher.json")
 let heights = [480, 720, 1080, 1440, 2160]
 let samples = [1, 2, 4, 8]
 let volumes = [100, 75, 50, 25, 0]
+// Converted DOAX characters (private/doax-<name>.dxc), for the experimental
+// costume injection; "Stock" keeps the fighter's own model.
+let costumes: [String] = {
+    let dir = root.appendingPathComponent("private")
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+    return names.filter { $0.hasPrefix("doax-") && $0.hasSuffix(".dxc") }
+        .map { String($0.dropFirst(5).dropLast(4)) }.sorted()
+}()
 
 var settings: [String: Any] = [:]
 if let data = try? Data(contentsOf: settingsURL),
@@ -30,11 +38,13 @@ let screenHeight: Int = {
 }()
 
 final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 214),
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: costumes.isEmpty ? 214 : 278),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
     let resolution = NSPopUpButton()
     let msaa = NSPopUpButton()
     let volume = NSPopUpButton()
+    let costumeP1 = NSPopUpButton()
+    let costumeP2 = NSPopUpButton()
     let smaa = NSButton(checkboxWithTitle: "SMAA", target: nil, action: nil)
     let widescreen = NSButton(checkboxWithTitle: "Widescreen (16:9)", target: nil, action: nil)
     var launched = false
@@ -52,6 +62,15 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         window.title = "Dead or Alive 3"
         window.delegate = self
+        if !costumes.isEmpty {
+            let items = ["Stock"] + costumes
+            func index(_ key: String) -> Int {
+                guard let name = settings[key] as? String, let i = costumes.firstIndex(of: name) else { return 0 }
+                return i + 1
+            }
+            addRow("Player 1", costumeP1, items, index("costume_p1"), 236)
+            addRow("Player 2", costumeP2, items, index("costume_p2"), 204)
+        }
         let savedHeight = intSetting("height", screenHeight)
         let nearest = heights.lastIndex(where: { $0 <= savedHeight }) ?? 0
         addRow("Resolution", resolution,
@@ -80,7 +99,12 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func play() {
+        func costume(_ popup: NSPopUpButton) -> String {
+            popup.indexOfSelectedItem > 0 ? costumes[popup.indexOfSelectedItem - 1] : ""
+        }
         let chosen: [String: Any] = [
+            "costume_p1": costumes.isEmpty ? "" : costume(costumeP1),
+            "costume_p2": costumes.isEmpty ? "" : costume(costumeP2),
             "height": heights[resolution.indexOfSelectedItem],
             "msaa": samples[msaa.indexOfSelectedItem],
             "smaa": false,
