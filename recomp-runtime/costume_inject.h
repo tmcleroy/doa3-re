@@ -21,7 +21,7 @@ bool recomp_costume_inject_enabled(void);
    projection. Returns true when the draw belongs to a replaced fighter and
    must not be submitted; the replacement is submitted on that fighter's
    first draw of the present, using the draw as the render-state template. */
-bool recomp_costume_inject_draw(uint32_t present, const float world[16],
+bool recomp_costume_inject_draw(uint32_t present, uint32_t vertex_data, const float world[16],
     const float view[16], const float projection[16],
     const RecompD3dPresenterDrawCommand *template_draw);
 

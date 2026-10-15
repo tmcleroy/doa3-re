@@ -2449,7 +2449,7 @@ static void submit_doa3_draw(uint32_t primitive, uint32_t count,
             read_transform(device, D3D_TRANSFORM_VIEW, view) &&
             read_transform(device, D3D_TRANSFORM_PROJECTION, projection) &&
             recomp_costume_inject_draw(recomp_d3d_frame_adapter_swap_counter() + 1u,
-                world, view, projection, draw))
+                vertices, world, view, projection, draw))
             goto finished;
     }
     {

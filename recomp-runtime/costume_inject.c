@@ -45,6 +45,10 @@ static struct {
     Part *parts;
     uint32_t part_count;
     uint32_t injected_present[FIGHTERS];
+    /* Vertex-data span of each fighter's own draws, by present: props from the
+       same loaded model (shoe straps, ribbons) fall inside it. */
+    uint32_t span_present[FIGHTERS], span_low[FIGHTERS], span_high[FIGHTERS];
+    uint32_t last_low[FIGHTERS], last_high[FIGHTERS];
 } inject;
 
 /* DOAX bone-local -> DOA3 bone-local rotation, row vectors (v3 = vX * C).
@@ -377,7 +381,21 @@ static void submit_fighter(float bank[DOAX_BONES][16], const float view[16], con
     }
 }
 
-bool recomp_costume_inject_draw(uint32_t present, const float world[16],
+static void note_span(unsigned f, uint32_t present, uint32_t vertex_data)
+{
+    if (!vertex_data) return;
+    if (inject.span_present[f] != present) {
+        if (inject.span_present[f] != 0u) {
+            inject.last_low[f] = inject.span_low[f]; inject.last_high[f] = inject.span_high[f];
+        }
+        inject.span_present[f] = present;
+        inject.span_low[f] = vertex_data; inject.span_high[f] = vertex_data;
+    }
+    if (vertex_data < inject.span_low[f]) inject.span_low[f] = vertex_data;
+    if (vertex_data > inject.span_high[f]) inject.span_high[f] = vertex_data;
+}
+
+bool recomp_costume_inject_draw(uint32_t present, uint32_t vertex_data, const float world[16],
     const float view[16], const float projection[16],
     const RecompD3dPresenterDrawCommand *template_draw)
 {
@@ -395,7 +413,20 @@ bool recomp_costume_inject_draw(uint32_t present, const float world[16],
             for (unsigned k = 12; k < 15; ++k) dist += (bones[i][k] - world[k]) * (bones[i][k] - world[k]);
             attached = err < 1e-4f && dist < 0.25f && fabsf(bones[i][0]) + fabsf(bones[i][5]) + fabsf(bones[i][10]) < 2.999f;
         }
-        if (!match) { if (attached) return true; continue; }
+        if (!match) {
+            if (attached) return true;
+            /* Same model allocation as last present's matched draws, and near the fighter. */
+            if (vertex_data && inject.last_high[f] > inject.last_low[f] &&
+                vertex_data >= inject.last_low[f] && vertex_data <= inject.last_high[f]) {
+                for (unsigned i = 0; i < DOA3_BONES; ++i) {
+                    float d = 0;
+                    for (unsigned k = 12; k < 15; ++k) d += (bones[i][k]-world[k])*(bones[i][k]-world[k]);
+                    if (d < 0.25f) return true;
+                }
+            }
+            continue;
+        }
+        note_span(f, present, vertex_data);
         if (inject.injected_present[f] != present) {
             inject.injected_present[f] = present;
             float bank[DOAX_BONES][16];
