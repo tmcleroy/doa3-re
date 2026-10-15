@@ -345,7 +345,7 @@ static Asset *pool_get(int index)
     if (index < 0 || (uint32_t)index >= pool.count || pool.failed[index]) return NULL;
     if (!pool.asset[index]) {
         Asset *a = calloc(1, sizeof *a);
-        bool ok = a && load(a, (unsigned)index, pool.path[index]);
+        bool ok = a && load(a, (unsigned)index, pool.path[index]) && a->part_count > 0;
         fprintf(stderr, "recomp costume inject: %s %s (%u parts, %u textures)\n",
             ok ? "loaded" : "failed to load", pool.path[index], a ? a->part_count : 0u, a ? a->texture_count : 0u);
         if (!ok) { pool.failed[index] = true; return NULL; }
