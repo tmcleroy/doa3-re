@@ -212,10 +212,12 @@ static void doax_bank(const Asset *a, const float doa3[DOA3_BONES][16], float b[
             multiply(a->relative[relative], b[parent], b[bone]);
             /* A second relative (the neck to the head): DOA3 has no neck, so
                carry it halfway between the chest and the head it joins. */
-            if (extra >= 0 && a->relative_parent[extra] < 15) {
+            static int neck = -1;
+            if (neck < 0) { const char *t = getenv("RECOMP_COSTUME_NECK"); neck = t ? atoi(t) : 50; }
+            if (extra >= 0 && a->relative_parent[extra] < 15 && neck > 0) {
                 float carried[16], mid[16];
                 multiply(a->relative[extra], b[a->relative_parent[extra]], carried);
-                blend(b[bone], carried, 0.5f, mid);
+                blend(b[bone], carried, (float)neck / 100.0f, mid);
                 memcpy(mid + 12, b[bone] + 12, 3 * sizeof(float));
                 memcpy(b[bone], mid, sizeof mid);
             }
