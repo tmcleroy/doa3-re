@@ -574,6 +574,16 @@ static void step_soft(unsigned f, Asset *a, float bank[DOAX_BONES][16], uint32_t
     if (!inject.soft_state[f]) inject.soft_state[f] = calloc((size_t)a->part_count * 6u + 6u, sizeof(float));
     if (inject.history_present[f] + 1u != present) inject.history_count[f] = 0;
     float (*h)[DOAX_BONES][3] = inject.history[f];
+    /* A scene cut or teleport moves the hip further in one frame than any
+       motion does; restart the springs at rest instead of kicking them. */
+    if (inject.history_count[f] >= 1u) {
+        float jump = 0;
+        for (unsigned c = 0; c < 3; ++c) jump += (bank[2][12+c] - h[1][2][c]) * (bank[2][12+c] - h[1][2][c]);
+        if (jump > 0.25f * 0.25f) {
+            inject.history_count[f] = 0;
+            memset(inject.soft_state[f], 0, ((size_t)a->part_count * 6u + 6u) * sizeof(float));
+        }
+    }
     const float dt = 1.0f / 60.0f;
     static float scale = -1.0f;
     if (scale < 0.0f) {
@@ -590,6 +600,9 @@ static void step_soft(unsigned f, Asset *a, float bank[DOAX_BONES][16], uint32_t
         if (inject.history_count[f] >= 2u)
             for (unsigned c = 0; c < 3; ++c)
                 accel[c] = (bank[b][12+c] - 2.0f*h[1][b][c] + h[0][b][c]) / (dt*dt);
+        /* Cap at about 8 g: a single bad sample must not pin the spring at its limit. */
+        float amag = sqrtf(accel[0]*accel[0] + accel[1]*accel[1] + accel[2]*accel[2]);
+        if (amag > 80.0f) for (unsigned c = 0; c < 3; ++c) accel[c] *= 80.0f / amag;
         for (unsigned c = 0; c < 3; ++c)
             local[c] = accel[0]*bank[b][c*4] + accel[1]*bank[b][c*4+1] + accel[2]*bank[b][c*4+2];
         const float k = p->soft_params[0], damping = p->soft_params[1], gain = p->soft_params[2] * scale, limit = p->soft_params[3];
