@@ -203,11 +203,22 @@ static void doax_bank(const Asset *a, const float doa3[DOA3_BONES][16], float b[
        still close. DOAX-only bones take their whole source-frame transform. */
     for (uint32_t h = 0; h < a->hierarchy_count; ++h) {
         const uint32_t bone = a->hierarchy_bone[h], parent = a->hierarchy_parent[h];
-        int relative = -1;
-        for (uint32_t i = 0; i < a->relative_count; ++i)
-            if (a->relative_bone[i] == bone) relative = (int)i;
+        int relative = -1, extra = -1;
+        for (uint32_t i = 0; i < a->relative_count; ++i) {
+            if (a->relative_bone[i] != bone) continue;
+            if (a->relative_parent[i] == parent) relative = (int)i; else extra = (int)i;
+        }
         if (relative >= 0) {
             multiply(a->relative[relative], b[parent], b[bone]);
+            /* A second relative (the neck to the head): DOA3 has no neck, so
+               carry it halfway between the chest and the head it joins. */
+            if (extra >= 0 && a->relative_parent[extra] < 15) {
+                float carried[16], mid[16];
+                multiply(a->relative[extra], b[a->relative_parent[extra]], carried);
+                blend(b[bone], carried, 0.5f, mid);
+                memcpy(mid + 12, b[bone] + 12, 3 * sizeof(float));
+                memcpy(b[bone], mid, sizeof mid);
+            }
             continue;
         }
         const float *o = a->hierarchy_offset[h], *pm = b[parent];
