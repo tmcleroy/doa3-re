@@ -17,7 +17,10 @@
    consecutive banks; a fighter part's WORLD0 is a verbatim copy of one.
    Measured in the attract demo: 0x004785D0 and 0x00478B90. */
 /* Slots 2 and 3 are tag partners (third bank referenced by game code); they
-   wear their team's (slot & 1) costume. Banks that never match cost nothing. */
+   wear their team's (slot & 1) costume. Banks that never match cost nothing.
+   Story cutscenes reuse these banks for other characters (Tina's intro puts
+   the newspaper reader in slot 0 and Tina in slot 2), so a cutscene extra can
+   wear a costume; telling characters apart needs the game's character id. */
 enum { FIGHTERS = 4, TEAMS = 2, DOA3_BONES = 23, DOAX_BONES = 32, MAX_WORLDS = 4 };
 static const uint32_t bank_base[FIGHTERS] = {0x004785d0u, 0x00478b90u, 0x00479150u, 0x00479710u};
 
